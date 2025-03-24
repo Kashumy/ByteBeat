@@ -1,0 +1,326 @@
+ <!DOCTYPE html>
+<html lang="pl" ondblclick="document.documentElement.requestFullscreen()">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bytebeat Emulator</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background-color: black;
+      color: #5EFF5E;
+      height: 100%;
+    }
+    @keyframes hueRotate {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+/* Animacja dla zielonych elementów */
+html{
+    user-select: none; user-zoom: none;
+  animation: hueRotate 10s linear infinite;
+}
+
+    /* Tło – pełnoekranowy canvas z animacją */
+    #backgroundCanvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 0;
+    }
+    /* Oscyloskop – pasek na górze */
+    #oscilloscope {
+      background-color: rgba(0, 0, 0, 0.7);
+      width: 100%;
+      height: 100px;
+      display: block;
+      position: fixed;
+top: 0;
+left: 0;
+z-index: 1;
+    }
+    /* Kontener główny */
+    .container {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 120px;
+    }
+    h1 {
+      margin: 10px 0;
+    }
+    textarea {
+      width: 90%;
+      border:none; outline: none;
+      max-width: 600px;
+      height: 80px;
+      background: #335E33;
+      border: none;
+      color: #5EFF5E;
+      padding: 10px;
+      resize: vertical;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    button, input {
+      padding: 10px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 5px;
+      border: none;
+      background-color: #5EFF5E;
+      color: black;
+    }
+    label {
+      margin: 5px;
+    }
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+    }
+    a {
+      margin-top: 10px;
+      text-decoration: none;
+      color: #5EFF5E;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Tło – animowany canvas -->
+  <canvas id="backgroundCanvas"></canvas>
+
+  <!-- Oscyloskop – górny pasek -->
+  <canvas id="oscilloscope"></canvas>
+
+  <div class="container">
+    <h1>Bytebeat Emulator</h1>
+    <!-- Pole tekstowe do edycji kodu bytebeat -->
+    <textarea id="codeEditor">
+(t*'36364689'[t>>13&7]/12&128)+(((t>>12^(t>>12)-2)%11*t/4|t>>13)&127)
+    </textarea>
+    
+    <div id="controls">
+      <button id="playButton" onclick="startAudio();">Start</button>
+      <button id="recordButton" onclick="startRecording();">Nagrywaj MP3</button>
+      <button id="stopButton" onclick="stopAudio(); stopRecording();" disabled>Stop</button>
+      <label>Speed:</label>
+      <input type="number" id="speedInput" value="8410" step="100" min="100" />
+      <label>Czas nagrania (sekundy):</label>
+      <input type="number" id="recordTime" value="5" step="1" min="1" max="60" />
+      <button onclick="norm255=0">rectifier true</button>
+      <button onclick="norm255=1">rectifier false</button>
+    </div>
+    
+    <a id="downloadLink" style="display: none">Pobierz MP3</a>
+  </div>
+
+  <script>
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    let isPlaying = false, sampleRate = 44100,  t = 0;
+    let scriptProcessor, stopRequested = false, animationId, bgAnimationId;
+    let bytebeat; 
+    let mediaRecorder, recordedChunks = [];
+    let norm255=1;
+ //t*((t&4096?t%65536<59392?7:t&7:16)+(1&t>>14))>>(3&-t>>(t&2048?2:10))|t>>(t&16384?t&4096?10:3:2)
+    const oscCanvas = document.getElementById("oscilloscope");
+    const oscCtx = oscCanvas.getContext("2d");
+    oscCanvas.width = window.innerWidth;
+    oscCanvas.height = 100;
+    function abs(a){
+  return Math.abs(a)
+}
+function cos(a) {
+  return Math.cos(a)
+}
+function sin(a) {
+  return Math.sin(a)
+}
+ 
+    const bgCanvas = document.getElementById("backgroundCanvas");
+    const bgCtx = bgCanvas.getContext("2d");
+    bgCanvas.width = window.innerWidth;
+    bgCanvas.height = window.innerHeight;
+    
+ 
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    const bufferLength = analyser.frequencyBinCount;
+    const oscDataArray = new Uint8Array(bufferLength);
+    
+ 
+    function compileBytebeat() {
+      const code = document.getElementById("codeEditor").value.trim();
+      try {
+        bytebeat = new Function('t', 'return (' + code + ');');
+      } catch (e) {
+        alert("Błąd w kodzie bytebeat:\n" + e.message);
+        // Ustawienie domyślnej funkcji
+        bytebeat = function(t) { return (((t/4*((t>>12^(t>>12)-2)%11)|t>>13)&127) + (t/12*(0x98646363>>(t>>11&28)&15)&128)); };
+      }
+    }
+    
+  
+function startAudio() {
+      if (isPlaying) return;
+      compileBytebeat();
+      isPlaying = true;
+      stopRequested = false;
+      
+ 
+      if (audioContext.state === "suspended") {
+        audioContext.resume();
+      }
+      
+      t = 0;
+      scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      scriptProcessor.onaudioprocess = (event) => {
+        const outputBuffer = event.outputBuffer.getChannelData(0);
+        for (let i = 0; i < outputBuffer.length; i++) {
+ 
+          outputBuffer[i] = ((bytebeat(t) & 255) - 128) / 128;
+if (norm255) {
+  outputBuffer[i] = ((bytebeat(t) & 255) - 128) / 128;
+} else { outputBuffer[i] = (bytebeat(t) / 128) - 1; }
+
+          t += sampleRate / 50000;
+        }
+        if(stopRequested) {
+          scriptProcessor.disconnect();
+          isPlaying = false;
+          stopRequested = false;
+          cancelAnimationFrame(animationId);
+          cancelAnimationFrame(bgAnimationId);
+          document.getElementById("stopButton").disabled = true;
+          document.getElementById("playButton").disabled = false;
+        }
+      };
+      
+ 
+      scriptProcessor.connect(analyser);
+      analyser.connect(audioContext.destination);
+      
+      drawOscilloscope();
+      animateBackground();
+      
+      document.getElementById("stopButton").disabled = false;
+      document.getElementById("playButton").disabled = true;
+    }
+    
+
+ 
+    function drawOscilloscope() {
+  animationId = requestAnimationFrame(drawOscilloscope);
+  analyser.getByteTimeDomainData(oscDataArray);
+  oscCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
+  oscCtx.fillRect(0, 0, oscCanvas.width, oscCanvas.height);
+  
+  oscCtx.beginPath();
+  const sliceWidth = oscCanvas.width / bufferLength;
+  let x = oscCanvas.width; 
+  
+  for (let i = 0; i < bufferLength; i++) {
+    const v = oscDataArray[i] / 128.0;
+    const y = v * oscCanvas.height / 2;
+    if (i === 0) {
+      oscCtx.moveTo(x, y);
+    } else {
+      oscCtx.lineTo(x, y);
+    }
+    x -= sliceWidth; 
+  }
+  
+  oscCtx.strokeStyle = "#5EFF5E";
+  oscCtx.stroke();
+}
+
+ 
+    function animateBackground() {
+      bgAnimationId = requestAnimationFrame(animateBackground);
+      analyser.getByteTimeDomainData(oscDataArray);
+      bgCtx.fillStyle = "rgba(0, 0, 0, 0.05)";
+      bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+      
+      bgCtx.strokeStyle = "rgba(94, 255, 94, 0.2)";
+      bgCtx.lineWidth = 2;
+      bgCtx.beginPath();
+      const sliceWidth = bgCanvas.width / bufferLength;
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const v = oscDataArray[i] / 128.0;
+        const y = v * bgCanvas.height / 2 ;
+        if (i === 0) {
+          bgCtx.moveTo(x, y);
+        } else {
+          bgCtx.lineTo(x, y);
+        }
+        x += sliceWidth;
+      }
+      bgCtx.stroke();
+    }
+    
+    document.getElementById('speedInput').addEventListener('input', (event) => {
+      sampleRate = parseFloat(event.target.value);
+    });
+    
+    // Nagrywanie do MP3
+    function startRecording() {
+      recordedChunks = [];
+      const dest = audioContext.createMediaStreamDestination();
+      scriptProcessor.connect(dest);
+      
+      mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm' });
+      
+      mediaRecorder.ondataavailable = (event) => recordedChunks.push(event.data);
+      
+      mediaRecorder.onstop = () => {
+        let blob = new Blob(recordedChunks, { type: 'audio/mp3' });
+        let url = URL.createObjectURL(blob);
+        let link = document.getElementById("downloadLink");
+        link.href = url;
+        link.download = "bytebeat.mp3";
+        link.style.display = "block";
+        link.textContent = "Pobierz MP3";
+      };
+      
+      mediaRecorder.start();
+      document.getElementById("recordButton").disabled = true;
+      document.getElementById("stopButton").disabled = false;
+      
+      let recordTime = parseInt(document.getElementById("recordTime").value) * 1000;
+      setTimeout(() => {
+        stopRecording();
+      }, recordTime);
+    }
+    
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+      }
+      document.getElementById("recordButton").disabled = false;
+    }
+    
+    function stopAudio() {
+      if (!isPlaying) return;
+      stopRequested = true;
+    }
+    
+ 
+    window.addEventListener('resize', () => {
+      oscCanvas.width = window.innerWidth;
+      bgCanvas.width = window.innerWidth;
+      bgCanvas.height = window.innerHeight;
+    });
+  </script>
+
+</body>
+</html>
