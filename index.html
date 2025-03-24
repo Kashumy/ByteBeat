@@ -106,8 +106,8 @@ z-index: 1;
     <h1>Bytebeat Emulator</h1>
     <!-- Pole tekstowe do edycji kodu bytebeat -->
     <textarea id="codeEditor">
-(t*'36364689'[t>>13&7]/12&128)+(((t>>12^(t>>12)-2)%11*t/4|t>>13)&127)
-    </textarea>
+ (t*'36364689'[t>>13&7]/12&128)+(((t>>12^(t>>12)-2)%11*t/4|t>>13)&127)
+ </textarea>
     
     <div id="controls">
       <button id="playButton" onclick="startAudio();">Start</button>
@@ -120,17 +120,33 @@ z-index: 1;
       <button onclick="norm255=0">rectifier true</button>
       <button onclick="norm255=1">rectifier false</button>
     </div>
-    
+    <p>T: <span id="timeDisplay">0</span></p>
+ 
+      <div class="slider-container">
+      <label for="gainSlider">Gain Note:</label>
+      <input type="number" id="gainSlider" min="-300" max="1000" value="0" step="1" style="background:lime;"/>
+      <br>
+      <span id="gainValue">0</span> H
+    </div>
     <a id="downloadLink" style="display: none">Pobierz MP3</a>
   </div>
+  
 
   <script>
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    let isPlaying = false, sampleRate = 44100,  t = 0;
+    let isPlaying = false, sampleRate = 45172,  t = 0;
     let scriptProcessor, stopRequested = false, animationId, bgAnimationId;
     let bytebeat; 
     let mediaRecorder, recordedChunks = [];
     let norm255=1;
+const PI = Math.PI;
+const sqrt = Math.sqrt;
+const round = Math.round;
+const min = Math.min;
+const max = Math.max;
+const random = Math.random;
+let gainValue = 0;
+
  //t*((t&4096?t%65536<59392?7:t&7:16)+(1&t>>14))>>(3&-t>>(t&2048?2:10))|t>>(t&16384?t&4096?10:3:2)
     const oscCanvas = document.getElementById("oscilloscope");
     const oscCtx = oscCanvas.getContext("2d");
@@ -145,7 +161,16 @@ function cos(a) {
 function sin(a) {
   return Math.sin(a)
 }
- 
+function updateTimeDisplay() {
+  document.getElementById("timeDisplay").textContent = Math.floor(t);
+}
+  document.getElementById('gainSlider').addEventListener('input', (event) => {
+      gainValue =  (event.target.value);
+      
+      document.getElementById('gainValue').textContent = gainValue;
+       
+    });
+
     const bgCanvas = document.getElementById("backgroundCanvas");
     const bgCtx = bgCanvas.getContext("2d");
     bgCanvas.width = window.innerWidth;
@@ -156,12 +181,14 @@ function sin(a) {
     analyser.fftSize = 512;
     const bufferLength = analyser.frequencyBinCount;
     const oscDataArray = new Uint8Array(bufferLength);
-    
+     
  
     function compileBytebeat() {
       const code = document.getElementById("codeEditor").value.trim();
       try {
-        bytebeat = new Function('t', 'return (' + code + ');');
+  
+  bytebeat = new Function('t', 'return (' + code + ');');
+
       } catch (e) {
         alert("Błąd w kodzie bytebeat:\n" + e.message);
         // Ustawienie domyślnej funkcji
@@ -180,20 +207,31 @@ function startAudio() {
       if (audioContext.state === "suspended") {
         audioContext.resume();
       }
-      
+       
+
       t = 0;
       scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      
       scriptProcessor.onaudioprocess = (event) => {
         const outputBuffer = event.outputBuffer.getChannelData(0);
         for (let i = 0; i < outputBuffer.length; i++) {
  
-          outputBuffer[i] = ((bytebeat(t) & 255) - 128) / 128;
+        //  outputBuffer[i] = ((bytebeat(t) & 255) - 128) / 128;
 if (norm255) {
-  outputBuffer[i] = ((bytebeat(t) & 255) - 128) / 128;
-} else { outputBuffer[i] = (bytebeat(t) / 128) - 1; }
+  if(gainValue==0||gainValue==NaN){  outputBuffer[i] = ((bytebeat(t) & 255) - 128) / 128;  }else{
+    outputBuffer[i] =(((bytebeat(t) & 255) - 128) / 128 )*(gainValue/1000);
+  }
+  
+} else { 
+  
+  if(gainValue==0||gainValue==NaN){outputBuffer[i] = (bytebeat(t) / 128) - 1}else{
+    outputBuffer[i] =((bytebeat(t) / 128) - 1)*(gainValue/1000)
+  }
+}
 
           t += sampleRate / 50000;
         }
+        updateTimeDisplay()
         if(stopRequested) {
           scriptProcessor.disconnect();
           isPlaying = false;
