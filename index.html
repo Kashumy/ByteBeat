@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pl" ondblclick="document.documentElement.requestFullscreen()">
 <head>
   <meta charset="UTF-8">
@@ -106,7 +106,54 @@ z-index: 1;
     <h1>Bytebeat Emulator</h1>
     <!-- Pole tekstowe do edycji kodu bytebeat -->
     <textarea id="codeEditor">
- (t*'36364689'[t>>13&7]/12&128)+(((t>>12^(t>>12)-2)%11*t/4|t>>13)&127)
+// Music maded by kashumygithub for my next project ;) 
+// Mit license
+      
+ t*=0.8,
+t=t% (524000*2),
+d=16,
+d2=16*2,
+mul2=
+((5) & -(((t/d2 >> 12) & 3) == 0)) +
+((5) & -(((t/d2 >> 12) & 3) == 1)) +
+((4) & -(((t/d2 >> 12) & 3) == 2)) +
+((4) & -(((t/d2 >> 12) & 3) == 3)) +
+0,
+decay = 200000,
+env = 256 >> (t/decay),
+
+mul1=
+((3) & -(((t/d >> 12) & 3) == 0)) +
+((6) & -(((t/d >> 12) & 3) == 1)) +
+((mul2) & -(((t/d >> 12) & 3) == 2)) +
+((mul2) & -(((t/d >> 12) & 3) == 3)) +
+0,
+
+rvrb=(t+((t >> 12) & 3)/d)/2000000,
+main3=
+((t*(mul1/12) * 2) & -(((t >> 12) & 3) == 0))/rvrb +
+((t*(mul1/12) * 3) & -(((t >> 12) & 3) == 5))/rvrb +
+((t*(mul1/12) * 5) & -(((t >> 12) & 3) == 2))/rvrb +
+((t*(mul1/12) * 0) & -(((t >> 12) & 3) == 3))/rvrb ,
+
+
+main1=
+((t*(mul1/12) * 2) & -(((t >> 12) & 3) == 0))+
+((t*(mul1/12) * 3) & -(((t >> 12) & 3) == 5)) +
+((t*(mul1/12) * 5) & -(((t >> 12) & 3) == 2)) +
+((t*(mul1/12) * 0) & -(((t >> 12) & 3) == 3)) ,
+timeadd=1000,
+main4 = (
+(((t+timeadd)*(mul1/12) * 2) & -(((t >> 12) & 3) == 0)) +
+(((t+timeadd)*(mul1/12) * 3) & -(((t >> 12) & 3) == 5)) +
+(((t+timeadd)*(mul1/12) * 5) & -(((t >> 12) & 3) == 2)) +
+(((t+timeadd)*(mul1/12) * 0) & -(((t >> 12) & 3) == 3))
+) >> 1,
+loop=300000,
+kick=((t >>8)&1)*(( [1,0,0,1,0,0,1,1][(t >>13)&7] )*12) * (1+
+((t >>4)&2)) & 255,
+sinebass=Math.floor((Math.sin((t/150)*6.28318)+1)*10.5*(1-((t%524000)/524000))),
+kick | main1 | main4 | main3 | sinebass
  </textarea>
     
     <div id="controls">
